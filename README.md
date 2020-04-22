@@ -20,3 +20,23 @@ The environment is then activated
 ```
 source activate PETSc-GMsFEM
 ```
+
+The package can be installed by running setup.py
+
+```
+python setup.py install
+```
+
+## Example
+
+A basic solve sample can be tested
+
+```
+cd examples
+```
+
+and running the command
+
+```
+mpirun -np 4 python DarcyEx1.py -AMPCG_verbose -ksp_monitor
+```
