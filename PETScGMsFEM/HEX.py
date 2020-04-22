@@ -17,7 +17,7 @@ class HEX():
 
     def GaussianQuadrature(self, order_integration):
         # Gaussian Quadrature initially defined for 3D full-order integration
-        if(order_intergration == "full"):
+        if(order_integration == "full"):
             val = 1. / np.sqrt(3)
             self.nip = 8
             self.IP_X = [ [-val, -val, -val],

@@ -1,8 +1,8 @@
 import numpy as np
 
-from baseFEMs import *
+from .HEX import HEX
 
-class DarcyQ1(baseFEMs.HEX):
+class DarcyQ1(HEX):
 
     def __init__(self, dim = 3, order_integration = "full"):
 
