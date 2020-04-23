@@ -42,6 +42,12 @@ class DarcyEx1:
         vlocal = self.da.createLocalVec()
         self.scatter_l2g = PETSc.Scatter().create(vlocal, None, vglobal, self.is_A)
 
+        # Construct Partition of Unity
+
+        self.cS = coarseSpace(self.da, self.A, self.comm, self.scatter_l2g)
+
+        self.cS.buildPOU(True)
+
     def isDirichlet(self, x):
         output = False
         val = 0.0
