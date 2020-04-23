@@ -9,17 +9,23 @@ class coarseSpace():
 
     # Contains and builds Coarse Space for Multiscale Method and Preconditioner
 
-    def __init__(self, da, A, comm, scatter_l2g):
+    def __init__(self, da, A, comm, scatter_l2g, numSub, proc2sub, M):
 
         self.da = da
 
         self.A = A
 
-        self.localBasis = []
+
 
         self.comm = comm
 
         self.scatter_l2g = scatter_l2g
+
+        self.numSub = numSub
+
+        self.proc2sub = proc2sub
+
+        self.localBasis = [ [] for i in range(M) ]
 
         # Setup global and local vectors and matrices
 
@@ -53,7 +59,77 @@ class coarseSpace():
             tmp.view(viewer)
             viewer.destroy()
 
+    def addBasisElement(self, v):
+
+        self.local_basis[j].append(v) # Amend to basis to list
+
+
+    def getCoarseVecs(self):
+
+        # This function sets up global size
+        if(self.coarseVecsBuilt == False):
+
+            self.coarse_vecs = [ [] for i in range(self.numSub) ] # construct lists of lists to contain vectors
+            self.localSize = np.zeros((1,self.numSub))
+
+            for i in range(self.numSub): # For each subdomain
+
+                idx = self.sub2proc[i][1]
+
+                self.localSize[i] = self.local_basis[idx][self.sub2proc[i,1]].len() if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None
+                # Communicate size of local basis for subdomain i which lives on process sub2proce[i,0]
+                self.localSize[i] = mpi.COMM_WORLD.bcast(self.localSize[i], root=self.sub2proc[i][0])
+
+                # Local Sizes
+                for j in range(self.localSize[i]):
+                    self.coarse_vecs[i].append(self.local_basis[j] if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None)
+
+            self.coarseVecsBuilt = True
+            self.firstBuild = True
+
+        else: # Coarse Vecs have been built previously, check to see if they have been made bigger
+
+            for i in range(self.numSub): # For each subdomain
+
+                idx = self.sub2proc[i][1]
+
+                size_local_basis = self.local_basis[self.sub2proc[i][1]].len() if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None
+
+                # Communicate size of local basis for subdomain i which lives on process sub2proce[i,0]
+                size_local_basis = mpi.COMM_WORLD.bcast(size_local_basis, root=self.sub2proc[i][0])
+
+                numNewModes = size_local_basis - self.localSize[i]
+
+                if(numNewModes > 0): # New Modes have been added on processor i
+
+                    for j in range(self.localSize[i], size_local_basis):
+                        self.coarse_vecs[i].append(self.local_basis[idx][j] if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None)
+
+        def buildCoarseSpace(self):
+
+            self.getCoarseVecs()
+
+
 """
+
+
+        # Construct A * v_i for each of the local basis functions
+
+            coarse_Avecs = [] # Initialise List to contain A * v_i for i = 1 to M
+            work, _ = self.A.getVecs()
+            workl, _ = self.A_local.getVecs()
+            for vec in coarse_vecs: # For each of the vectors in coarse space
+                if vec: # if this vec belongs to this processor
+                    workl = X * vec.copy() # Multiply by partition of unity
+                else:
+                    workl.set(0.0) # else set to zero
+                work.set(0.0) # set global v
+                self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
+                coarse_Avecs.append(A * work) # A * v for all basis functions
+                self.scatter_l2g(coarse_Avecs[-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
+
+
+
         # Add constant function for those domains without Dirichlet Boundary
         if(self.grid.Dirich.size == 0): # No nodes on Dirichlet boundaries
             zeroEnergy,_ = A_local.getVecs()

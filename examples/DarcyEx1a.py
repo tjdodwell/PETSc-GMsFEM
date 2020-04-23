@@ -30,6 +30,14 @@ class DarcyEx1:
         self.da.setUniformCoordinates(xmax=L[0], ymax=L[1], zmax=L[2])
         self.da.setMatType(PETSc.Mat.Type.AIJ)
 
+        self.numSub = comm.Get_size()
+
+        self.sub2proc = [ [] for i in range(self.numSub) ]
+        for i in range(self.numSub):
+            self.sub2proc[i] = [i, 0]
+
+        self.M = 1
+
         # Define Finite Element space
 
         self.fe = DarcyQ1(self.dim)
@@ -53,7 +61,7 @@ class DarcyEx1:
 
         # Construct Partition of Unity
 
-        self.cS = coarseSpace(self.da, self.A, self.comm, self.scatter_l2g)
+        self.cS = coarseSpace(self.da, self.A, self.comm, self.scatter_l2g, self.numSub, self.sub2proc, self.M)
 
         self.cS.buildPOU(True)
 
@@ -76,6 +84,8 @@ class DarcyEx1:
 
     def solvePDE(self, plotSolution = False):
 
+        # Solve A * x = b
+
         # Assemble Global Stifness Matrix
 
         b = self.da.createGlobalVec()
@@ -95,7 +105,7 @@ class DarcyEx1:
         rows = []
         for i in range(nnodes):
             val, type = self.isBoundary(coords[:,i])
-            if(type == 1):
+            if(type == 1): # It's Dirichlet
                 rows.append(i)
                 b_local[i] = val
         rows = np.asarray(rows,dtype=np.int32)
