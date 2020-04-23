@@ -36,7 +36,7 @@ class DarcyEx1:
         for i in range(self.numSub):
             self.sub2proc[i] = [i, 0]
 
-        self.M = 1
+        self.M = self.numSub
 
         # Define Finite Element space
 
@@ -57,7 +57,6 @@ class DarcyEx1:
         nnodes = int(self.da.getCoordinatesLocal()[ :].size/self.dim)
         coords = np.transpose(self.da.getCoordinatesLocal()[:].reshape((nnodes,self.dim)))
         Dirich, Neumann, P2P = checkFaces(self.da, self.isBnd, coords)
-
 
         # Construct Partition of Unity
 
@@ -136,11 +135,17 @@ class DarcyEx1:
             x.view(viewer)
             viewer.destroy()
 
+        return x
 
+    def addtoBasis(self, x):
+        # x is global soltuion vector from a previous solve. Need to obtain solution on subdomain
+        x_loc = self.da.createLocalVec()
+        self.scatter_l2g(x, x_loc, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
+        self.cS.addBasisElement(x_loc, comm.Get_rank())
 
-L = [2.0, 1.0, 1.0]
+L = [1.0, 1.0, 1.0]
 
-n = [20, 10, 10]
+n = [10, 10, 10]
 
 dim = 3
 
@@ -150,4 +155,6 @@ plotSolution = True
 
 myModel = DarcyEx1(n, L, overlap, comm)
 
-myModel.solvePDE(True)
+x = myModel.solvePDE(True)
+
+myModel.addtoBasis(x)

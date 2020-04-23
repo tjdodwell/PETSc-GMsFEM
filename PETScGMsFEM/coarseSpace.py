@@ -15,8 +15,6 @@ class coarseSpace():
 
         self.A = A
 
-
-
         self.comm = comm
 
         self.scatter_l2g = scatter_l2g
@@ -59,12 +57,14 @@ class coarseSpace():
             tmp.view(viewer)
             viewer.destroy()
 
-    def addBasisElement(self, v):
+    def addBasisElement(self, v, j):
 
-        self.local_basis[j].append(v) # Amend to basis to list
+        self.localBasis[j].append(self.X * v) # Amend to basis to list - multiply by POU
 
 
     def getCoarseVecs(self):
+
+        self.needRebuild = []
 
         # This function sets up global size
         if(self.coarseVecsBuilt == False):
@@ -73,6 +73,8 @@ class coarseSpace():
             self.localSize = np.zeros((1,self.numSub))
 
             for i in range(self.numSub): # For each subdomain
+
+                self.needRebuild.append(i) # Tells us we need to rebuild A * v_i
 
                 idx = self.sub2proc[i][1]
 
@@ -85,51 +87,53 @@ class coarseSpace():
                     self.coarse_vecs[i].append(self.local_basis[j] if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None)
 
             self.coarseVecsBuilt = True
-            self.firstBuild = True
+            self.FirstBuild = True
 
-        else: # Coarse Vecs have been built previously, check to see if they have been made bigger
+
+        else: # Coarse Vecs have been built previously, check to see if they have been made bigger / changed
 
             for i in range(self.numSub): # For each subdomain
-
                 idx = self.sub2proc[i][1]
-
                 size_local_basis = self.local_basis[self.sub2proc[i][1]].len() if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None
-
                 # Communicate size of local basis for subdomain i which lives on process sub2proce[i,0]
                 size_local_basis = mpi.COMM_WORLD.bcast(size_local_basis, root=self.sub2proc[i][0])
-
                 numNewModes = size_local_basis - self.localSize[i]
-
                 if(numNewModes > 0): # New Modes have been added on processor i
-
+                    self.needRebuild.append(i) # Make Processor that A*v_i needs updating
                     for j in range(self.localSize[i], size_local_basis):
                         self.coarse_vecs[i].append(self.local_basis[idx][j] if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None)
+                self.localSize[i] = size_local_basis
 
         def buildCoarseSpace(self):
 
-            self.getCoarseVecs()
+            self.getCoarseVecs() # Get current local basis from all processorsdd
 
 
-"""
+        def compute_Av(self):
 
+            # Construct A * v_i for each of the local basis functions
 
-        # Construct A * v_i for each of the local basis functions
+            self.coarse_Avecs = [ [] for i in range(self.numSub) ] # Initialise List to contain A * v_i for i = 1 to M
 
-            coarse_Avecs = [] # Initialise List to contain A * v_i for i = 1 to M
             work, _ = self.A.getVecs()
             workl, _ = self.A_local.getVecs()
-            for vec in coarse_vecs: # For each of the vectors in coarse space
-                if vec: # if this vec belongs to this processor
-                    workl = X * vec.copy() # Multiply by partition of unity
-                else:
-                    workl.set(0.0) # else set to zero
-                work.set(0.0) # set global v
-                self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
-                coarse_Avecs.append(A * work) # A * v for all basis functions
-                self.scatter_l2g(coarse_Avecs[-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
+            for i in self.needRebuild: # For each subdomain that needs rebuilding
 
+                for vec in self.coarse_vecs[i]: # For each of the vectors in the subdomain
+                    if vec: # if this vec belongs to this processor
+                        workl = vec.copy() # Multiply by partition of unity
+                    else:
+                        workl.set(0.0) # else set to zero
+                    work.set(0.0) # set global v
+                    self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
+                    coarse_Avecs.append(A * work) # A * v for all basis functions
+                    self.scatter_l2g(coarse_Avecs[-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
+            if(self.FirstBuild): # If this is a first build then make a copy of the A*V
+
+                self.coarse_Avecs_copy = self.coarse_Avecs.copy()
+"""
         # Add constant function for those domains without Dirichlet Boundary
         if(self.grid.Dirich.size == 0): # No nodes on Dirichlet boundaries
             zeroEnergy,_ = A_local.getVecs()
