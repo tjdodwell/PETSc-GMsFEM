@@ -24,6 +24,8 @@ class DarcyEx1:
 
         self.comm = comm
 
+        self.isBnd = lambda x: self.isBoundary(x)
+
         self.da = PETSc.DMDA().create(n, dof=1, stencil_width=overlap)
         self.da.setUniformCoordinates(xmax=L[0], ymax=L[1], zmax=L[2])
         self.da.setMatType(PETSc.Mat.Type.AIJ)
@@ -42,22 +44,35 @@ class DarcyEx1:
         vlocal = self.da.createLocalVec()
         self.scatter_l2g = PETSc.Scatter().create(vlocal, None, vglobal, self.is_A)
 
+        # Identify boundary nodes
+
+        nnodes = int(self.da.getCoordinatesLocal()[ :].size/self.dim)
+        coords = np.transpose(self.da.getCoordinatesLocal()[:].reshape((nnodes,self.dim)))
+        Dirich, Neumann, P2P = checkFaces(self.da, self.isBnd, coords)
+
+
         # Construct Partition of Unity
 
         self.cS = coarseSpace(self.da, self.A, self.comm, self.scatter_l2g)
 
         self.cS.buildPOU(True)
 
-    def isDirichlet(self, x):
-        output = False
+    def isBoundary(self, x):
         val = 0.0
         if(x[0] < 1e-6):
             output = True
             val = 0.0
-        if(x[0] > self.L[0] - 1e-6):
+            type = 1
+        elif(x[0] > self.L[0] - 1e-6):
             output = True
             val = 1.0
-        return output, val
+            type = 1
+        elif((x[1] < 1e-6) or (x[2] < 1e-6) or (x[1] > L[1] - 1e-6) or (x[2] > L[2] - 1e-6)):
+            type = 2 # Neumann Boundary
+        else:
+            type = 0 # Either internal or processor to processor boundary
+
+        return val, type
 
     def solvePDE(self, plotSolution = False):
 
@@ -79,8 +94,8 @@ class DarcyEx1:
         # Implement Boundary Conditions
         rows = []
         for i in range(nnodes):
-            isDirich, val = self.isDirichlet(coords[:,i])
-            if(isDirich):
+            val, type = self.isBoundary(coords[:,i])
+            if(type == 1):
                 rows.append(i)
                 b_local[i] = val
         rows = np.asarray(rows,dtype=np.int32)
