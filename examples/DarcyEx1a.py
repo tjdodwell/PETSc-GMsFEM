@@ -143,6 +143,10 @@ class DarcyEx1:
         self.scatter_l2g(x, x_loc, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
         self.cS.addBasisElement(x_loc, comm.Get_rank())
 
+    def buildCoarseSpace(self):
+
+        self.cS.getCoarseVecs()
+
 L = [1.0, 1.0, 1.0]
 
 n = [10, 10, 10]
@@ -157,4 +161,6 @@ myModel = DarcyEx1(n, L, overlap, comm)
 
 x = myModel.solvePDE(True)
 
-myModel.addtoBasis(x)
+myModel.addtoBasis(x) # Add solution to Coarse basis.
+
+myModel.buildCoarseSpace()
