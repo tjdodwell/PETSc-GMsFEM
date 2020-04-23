@@ -74,7 +74,7 @@ for i in range(nnodes):
         rows.append(i)
         b_local[i] = val
 rows = np.asarray(rows,dtype=np.int32)
-A.zeroRowsLocal(rows)
+A.zeroRowsLocal(rows, diag = 1.0)
 
 scatter_l2g(b_local, b, PETSc.InsertMode.INSERT_VALUES)
 
