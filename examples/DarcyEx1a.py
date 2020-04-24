@@ -60,7 +60,7 @@ class DarcyEx1:
 
         # Construct Partition of Unity
 
-        self.cS = coarseSpace(self.da, self.A, self.comm, self.scatter_l2g, self.numSub, self.sub2proc, self.M)
+        self.cS = coarseSpace(self.da, self.A, self.comm, self.scatter_l2g)
 
         self.cS.buildPOU(True)
 
@@ -139,16 +139,13 @@ class DarcyEx1:
 
     def addtoBasis(self, x):
         # x is global soltuion vector from a previous solve. Need to obtain solution on subdomain
-        print("Adding Basis Vector on " + str(self.comm.Get_rank()))
         x_loc = self.da.createLocalVec()
         self.scatter_l2g(x, x_loc, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
-        self.cS.addBasisElement(x_loc, 0) # Note that 0 since in this case 1 proc = 1 subdomain
+        self.cS.addBasisElement(x_loc) # Note that 0 since in this case 1 proc = 1 subdomain
 
     def buildCoarseSpace(self):
 
         self.cS.getCoarseVecs() # Builds Coarse Vectos on Each subdomain
-
-        print(self.cS.needRebuild)
 
         self.cS.compute_Av()
 

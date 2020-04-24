@@ -9,7 +9,7 @@ class coarseSpace():
 
     # Contains and builds Coarse Space for Multiscale Method and Preconditioner
 
-    def __init__(self, da, A, comm, scatter_l2g, numSub, sub2proc, M):
+    def __init__(self, da, A, comm, scatter_l2g):
 
         self.da = da
 
@@ -19,11 +19,7 @@ class coarseSpace():
 
         self.scatter_l2g = scatter_l2g
 
-        self.numSub = numSub
-
-        self.sub2proc = sub2proc
-
-        self.localBasis = [ [] for i in range(M) ]
+        self.localBasis = []
 
         self.coarseVecsBuilt = False # Initialise Coarse Vector not built
 
@@ -59,15 +55,9 @@ class coarseSpace():
             tmp.view(viewer)
             viewer.destroy()
 
-    def addBasisElement(self, v, j):
+    def addBasisElement(self, v):
 
-        print("I am now in addBasisVector(), proc = " + str(self.comm.Get_rank()) + " and j = " + str(j))
-
-        self.localBasis[j].append(self.X * v) # Amend to basis to list - multiply by POU
-
-        print(self.localBasis)
-
-
+        self.localBasis.append(self.X * v) # Amend to basis to list - multiply by POU
 
     def getCoarseVecs(self):
 
@@ -76,30 +66,20 @@ class coarseSpace():
         # This function sets up global size
         if(self.coarseVecsBuilt == False):
 
-            self.coarse_vecs = [ [] for i in range(self.numSub) ] # construct lists of lists to contain vectors
-            self.localSize = [ [] for i in range(self.numSub) ]
+            self.coarse_vecs = [ [] for i in range(self.comm.Get_size()) ] # construct list of lists to contain all vectors
+            self.localSize = l = [None] * self.comm.Get_size()
 
-            for i in range(self.numSub): # For each subdomain
-
-                print("This is subdomain " + str(i))
-
+            for i in range(self.comm.Get_size()): # For each subdomain
                 self.needRebuild.append(i) # Tells us we need to rebuild A * v_i for this subdomain.
 
-                idx = self.sub2proc[i][1]
-
-                self.localSize[i] = len(self.localBasis[idx]) if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None
-                print("I am processor = " + str(mpi.COMM_WORLD.rank) +  "before broadcast" + str(self.localSize[i]))
+                self.localSize[i] = len(self.localBasis) if i == mpi.COMM_WORLD.rank else None
 
                 # Communicate size of local basis for subdomain i which lives on process sub2proce[i,0]
-                self.localSize[i] = mpi.COMM_WORLD.bcast(self.localSize[i], root=self.sub2proc[i][0])
-
-                self.comm.barrier()
-
-                print("I am processor = " + str(mpi.COMM_WORLD.rank) +  " after broadcast" + str(self.localSize[i]))
+                self.localSize[i] = mpi.COMM_WORLD.bcast(self.localSize[i], root=i)
 
                 # Local Sizes
                 for j in range(self.localSize[i]):
-                    self.coarse_vecs[i].append(self.localBasis[j] if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None)
+                    self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
 
             self.coarseVecsBuilt = True
             self.FirstBuild = True
@@ -107,24 +87,25 @@ class coarseSpace():
 
         else: # Coarse Vecs have been built previously, check to see if they have been made bigger / changed
 
-            for i in range(self.numSub): # For each subdomain
-                idx = self.sub2proc[i][1]
-                size_localBasis = self.local_basis[self.sub2proc[i][1]].len() if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None
+            for i in range(self.comm.Get_size()): # For each subdomain
+                size_localBasis = len(self.localBasis) if i == mpi.COMM_WORLD.rank else None
                 # Communicate size of local basis for subdomain i which lives on process sub2proce[i,0]
-                size_local_basis = mpi.COMM_WORLD.bcast(size_local_basis, root=self.sub2proc[i][0])
+                size_localBasis = mpi.COMM_WORLD.bcast(size_localBasis, root=i)
                 numNewModes = size_local_basis - self.localSize[i]
                 if(numNewModes > 0): # New Modes have been added on processor i
                     self.needRebuild.append(i) # Make Processor that A*v_i needs updating
                     for j in range(self.localSize[i], size_local_basis):
-                        self.coarse_vecs[i].append(self.local_basis[idx][j] if self.sub2proc[i][0] == mpi.COMM_WORLD.rank else None)
-                self.localSize[i] = size_local_basis
+                        self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
+                    self.localSize[i] = size_localBasis
 
 
     def compute_Av(self):
 
         # Construct A * v_i for each of the local basis functions
-
-        self.coarse_Avecs = [ [] for i in range(self.numSub) ] # Initialise List to contain A * v_i for i = 1 to M
+        if(self.FirstBuild):
+            self.coarse_Avecs = [ [] for i in range(self.comm.Get_size()) ]
+        else:
+            self.coarse_Avecs = self.base_Av.copy()
 
         work, _ = self.A.getVecs()
         workl, _ = self.A_local.getVecs()
@@ -133,8 +114,6 @@ class coarseSpace():
 
             self.coarse_Avecs[i].clear() # There should be a better way of doing this, by only clearing those modes that have been update.
 
-            #print(self.coarse_vecs)
-
             for vec in self.coarse_vecs[i]:
 
                 if vec: # if this vec belongs to this processor
@@ -142,11 +121,11 @@ class coarseSpace():
                 else:
                     workl.set(0.0)
 
+                self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
 
-                #self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
+                self.coarse_Avecs[i].append(self.A * work) # A * v for all basis functions
 
-
-                #self.coarse_Avecs[i].append(A * work) # A * v for all basis functions
+                self.scatter_l2g(self.coarse_Avecs[i][-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
 
 
