@@ -145,7 +145,11 @@ class DarcyEx1:
 
     def buildCoarseSpace(self):
 
-        self.cS.getCoarseVecs()
+        self.cS.getCoarseVecs() # Builds Coarse Vectos on Each subdomain
+
+        print(self.cS.needRebuild)
+
+        self.cS.compute_Av()
 
 L = [1.0, 1.0, 1.0]
 

@@ -106,19 +106,16 @@ class coarseSpace():
                 self.localSize[i] = size_local_basis
 
 
+    def compute_Av(self):
 
+        # Construct A * v_i for each of the local basis functions
 
-        def compute_Av(self):
-
-            # Construct A * v_i for each of the local basis functions
-
-            self.coarse_Avecs = [ [] for i in range(self.numSub) ] # Initialise List to contain A * v_i for i = 1 to M
-
+        self.coarse_Avecs = [ [] for i in range(self.numSub) ] # Initialise List to contain A * v_i for i = 1 to M
+"""
             work, _ = self.A.getVecs()
             workl, _ = self.A_local.getVecs()
 
             for i in self.needRebuild: # For each subdomain that needs rebuilding
-
                 for vec in self.coarse_vecs[i]: # For each of the vectors in the subdomain
                     if vec: # if this vec belongs to this processor
                         workl = vec.copy() # Multiply by partition of unity
@@ -132,6 +129,8 @@ class coarseSpace():
             if(self.FirstBuild): # If this is a first build then make a copy of the A*V
 
                 self.coarse_Avecs_copy = self.coarse_Avecs.copy()
+
+"""
 """
         # Add constant function for those domains without Dirichlet Boundary
         if(self.grid.Dirich.size == 0): # No nodes on Dirichlet boundaries
