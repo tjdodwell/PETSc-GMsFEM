@@ -17,8 +17,5 @@ setup(
         'vtk',
         'pytest'
         ]
-
-
-        ]
     #ext_modules = cythonize('GenEO/matelem_cython.pyx'),
 )
