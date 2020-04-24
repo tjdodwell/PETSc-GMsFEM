@@ -36,7 +36,7 @@ class DarcyEx1:
         for i in range(self.numSub):
             self.sub2proc[i] = [i, 0]
 
-        self.M = self.numSub
+        self.M = 1
 
         # Define Finite Element space
 
@@ -139,9 +139,10 @@ class DarcyEx1:
 
     def addtoBasis(self, x):
         # x is global soltuion vector from a previous solve. Need to obtain solution on subdomain
+        print("Adding Basis Vector on " + str(self.comm.Get_rank()))
         x_loc = self.da.createLocalVec()
         self.scatter_l2g(x, x_loc, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
-        self.cS.addBasisElement(x_loc, comm.Get_rank())
+        self.cS.addBasisElement(x_loc, 0) # Note that 0 since in this case 1 proc = 1 subdomain
 
     def buildCoarseSpace(self):
 
