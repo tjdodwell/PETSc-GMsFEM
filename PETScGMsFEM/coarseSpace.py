@@ -21,6 +21,14 @@ class coarseSpace():
 
         self.localBasis = []
 
+        self.count = 0
+
+        self.numBuilds = 0
+
+        self.coarseIS = [[]]
+
+        self.totalSize = 0
+
         self.coarseVecsBuilt = False # Initialise Coarse Vector not built
 
         # Setup global and local vectors and matrices
@@ -55,6 +63,31 @@ class coarseSpace():
             tmp.view(viewer)
             viewer.destroy()
 
+    def getSharedProcessors(self):
+
+        # Function calculates which subdomains a subdomain overlaps with, reducing need to calculate lots of components of coarse assembly
+
+        for i in range(self.comm.Get_size()): # For each processor
+
+            work, _ = self.A.getVecs()
+            workl, _ = self.A_local.getVecs()
+
+            if(self.comm.Get_rank() == i):
+                workl.set(1.0)
+            else:
+                workl.set(0.0)
+            work.set(0.0)
+            self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
+            self.scatter_l2g(work, workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
+
+            isNeighbour = 0
+            if(np.sum(workl[:]) > 0 and self.comm.Get_rank() != i):
+                isNeighbour = 1
+            isNeighbour = self.comm.gather(isNeighbour, root=i)
+            if(self.comm.Get_rank() == i):
+                self.isNeighbour = np.nonzero(isNeighbour)
+
+
     def addBasisElement(self, v):
 
         self.localBasis.append(self.X * v) # Amend to basis to list - multiply by POU
@@ -63,13 +96,15 @@ class coarseSpace():
 
         self.needRebuild = []
 
-        # This function sets up global size
         if(self.coarseVecsBuilt == False):
+
+            assert self.count == 0, "Full build of vector only required on first pass, something's not right."
 
             self.coarse_vecs = [ [] for i in range(self.comm.Get_size()) ] # construct list of lists to contain all vectors
             self.localSize = l = [None] * self.comm.Get_size()
 
             for i in range(self.comm.Get_size()): # For each subdomain
+
                 self.needRebuild.append(i) # Tells us we need to rebuild A * v_i for this subdomain.
 
                 self.localSize[i] = len(self.localBasis) if i == mpi.COMM_WORLD.rank else None
@@ -79,10 +114,15 @@ class coarseSpace():
 
                 # Local Sizes
                 for j in range(self.localSize[i]):
+                    self.totalSize += 1
+                    if(i == self.comm.Get_rank()):
+                        self.coarseIS[self.numBuilds].append(self.count)
+                    self.count += 1
                     self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
 
             self.coarseVecsBuilt = True
             self.FirstBuild = True
+            self.numBuilds += 1
 
 
         else: # Coarse Vecs have been built previously, check to see if they have been made bigger / changed
@@ -95,9 +135,12 @@ class coarseSpace():
                 if(numNewModes > 0): # New Modes have been added on processor i
                     self.needRebuild.append(i) # Make Processor that A*v_i needs updating
                     for j in range(self.localSize[i], size_local_basis):
+                        self.totalSize += 1
+                        if(i == self.comm.Get_rank()):
+                            self.coarseIS[self.numBuilds].append(self.count)
+                        self.count += 1
                         self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
                     self.localSize[i] = size_localBasis
-
 
     def compute_Av(self):
 
@@ -127,28 +170,81 @@ class coarseSpace():
 
                 self.scatter_l2g(self.coarse_Avecs[i][-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
+                if vec:
+                    vec.scale(1./np.sqrt(vec.dot(workl)))
+                    workl = vec.copy()
+                else:
+                    workl.set(0.)
+                work.set(0.) # Initialise to zero
+                self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
+                self.coarse_Avecs[i][-1] = self.A * work
+
+        if(self.FirstBuild):
+            self.base_Av = self.coarse_Avecs.copy()
+"""
+    def assembleCoarseMatrix(self):
+
+        # Define, fill and factorize coarse problem matrix
+        AH = PETSc.Mat().create(comm=PETSc.COMM_SELF) # Create Coarse Matrix System Locally on each processor
+        AH.setType(PETSc.Mat.Type.SEQDENSE)
+
+        AH.setSizes([self.totalSize,self.totalSize])
+
+        AH.setOption(PETSc.Mat.Option.SYMMETRIC, True)
+        AH.setPreallocationDense(None)
+
+        work, _ = self.A.getVecs()
+        workl, _ = self.A_local.getVecs()
+
+        # If count == 0 this will build all of the matrix first
+
+        # Compute plots of lower triangle matrix
+
+        V_i^T A V_j # Store these values in numpy array
+
+        Get nearest neighbour
+
+        for j in range(self.comm.Get_size()): # for each subdomain
+
+
+
+        idMode = 0
+
+        for i in range(self.comm.Get_size()): # for each subdomain
+
+            for j, vec in enumerate(coarse_vecs[i]): # For each mode in this subdomain
+
+                if vec: # if this vec belongs to this processor
+                    workl = vec.copy()
+                else:
+                    workl.set(0.0) # else set to zero
+
+                work.set(0.0)
+                self.scatter_l2g(self.workl, work, PETSc.InsertMode.ADD_VALUES)
+
+                for k in range(self.comm.Get_size()): # for each subdomain
+
+                for  in range(idMode+1): # Going to loop over just the lower triangle
+                    tmp = coarse_Avecs[i][j].dot(work) # AH[i,j] = v_j^T A v_i
+                    AH[i, j] = tmp
+                    AH[j, i] = tmp
+
+            AH.assemble() # Assemble coarse Matrix
+
+            # Set up coarse space solver
+
+            ksp_AH = PETSc.KSP().create(comm=PETSc.COMM_SELF)
+            ksp_AH.setOperators(AH)
+            ksp_AH.setType('preonly')
+            pc = ksp_AH.getPC()
+            pc.setType('cholesky')
+
+            return AH, ksp_AH
 
 
 """
-            work, _ = self.A.getVecs()
-            workl, _ = self.A_local.getVecs()
 
-            for i in self.needRebuild: # For each subdomain that needs rebuilding
-                for vec in self.coarse_vecs[i]: # For each of the vectors in the subdomain
-                    if vec: # if this vec belongs to this processor
-                        workl = vec.copy() # Multiply by partition of unity
-                    else:
-                        workl.set(0.0) # else set to zero
-                    work.set(0.0) # set global v
-                    self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
-                    coarse_Avecs.append(A * work) # A * v for all basis functions
-                    self.scatter_l2g(coarse_Avecs[-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
-            if(self.FirstBuild): # If this is a first build then make a copy of the A*V
-
-                self.coarse_Avecs_copy = self.coarse_Avecs.copy()
-
-"""
 """
         # Add constant function for those domains without Dirichlet Boundary
         if(self.grid.Dirich.size == 0): # No nodes on Dirichlet boundaries
@@ -193,7 +289,7 @@ class coarseSpace():
 
         - Implementation differs from petsc-geneo - Need to understand why.
 
-        - Not A can be any matrix
+        - Note A can be any matrix
 
         - Where do we implement partition of unity - probably in self.local_basis
 

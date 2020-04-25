@@ -52,6 +52,8 @@ class DarcyEx1:
         vlocal = self.da.createLocalVec()
         self.scatter_l2g = PETSc.Scatter().create(vlocal, None, vglobal, self.is_A)
 
+        self.A_local = A_local
+
         # Identify boundary nodes
 
         nnodes = int(self.da.getCoordinatesLocal()[ :].size/self.dim)
@@ -80,6 +82,8 @@ class DarcyEx1:
             type = 0 # Either internal or processor to processor boundary
 
         return val, type
+
+
 
     def solvePDE(self, plotSolution = False):
 
@@ -147,22 +151,32 @@ class DarcyEx1:
 
         self.cS.getCoarseVecs() # Builds Coarse Vectos on Each subdomain
 
+        print(self.cS.coarseIS)
+
         self.cS.compute_Av()
+
+        print(self.cS.totalSize)
+
+        self.cS.assembleCoarseMatrix()
 
 L = [1.0, 1.0, 1.0]
 
-n = [10, 10, 10]
+n = [40, 40, 40]
 
 dim = 3
 
-overlap = 1
+overlap = 4
 
 plotSolution = True
 
 myModel = DarcyEx1(n, L, overlap, comm)
 
+myModel.cS.getSharedProcessors()
+
+"""
 x = myModel.solvePDE(True)
 
 myModel.addtoBasis(x) # Add solution to Coarse basis.
 
 myModel.buildCoarseSpace()
+"""
