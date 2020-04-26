@@ -23,7 +23,7 @@ class coarseSpace():
 
         self.count = 0
 
-        self.numBuilds = 0
+        self.numBuilds = 0 # Records how many times coarse system is built
 
         self.coarseIS = [[]]
 
@@ -91,10 +91,6 @@ class coarseSpace():
 
             self.isNeighbour = np.nonzero(Neighbours)
 
-            #print( "i is = " + str(i) + ", this is processor" + str(self.comm.Get_rank()) + str(self.isNeighbour))
-
-
-
     def addBasisElement(self, v):
 
         self.localBasis.append(self.X * v) # Amend to basis to list - multiply by POU
@@ -151,18 +147,14 @@ class coarseSpace():
 
     def compute_Av(self):
 
-        # Construct A * v_i for each of the local basis functions
-        if(self.FirstBuild):
-            self.coarse_Avecs = [ [] for i in range(self.comm.Get_size()) ]
-        else:
-            self.coarse_Avecs = self.base_Av.copy()
+        # Computes A * V_i for each subdomain
 
         work, _ = self.A.getVecs()
         workl, _ = self.A_local.getVecs()
 
-        for i in self.needRebuild: # For each subdomain that needs to be built
+        self.coarse_Avecs = [ [] for i in range(self.comm.Get_size()) ]
 
-            self.coarse_Avecs[i].clear() # There should be a better way of doing this, by only clearing those modes that have been update.
+        for i in range(self.comm.Get_size()): # For each subdomain
 
             for vec in self.coarse_vecs[i]:
 
@@ -182,20 +174,18 @@ class coarseSpace():
                     workl = vec.copy()
                 else:
                     workl.set(0.)
+
                 work.set(0.) # Initialise to zero
                 self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
                 self.coarse_Avecs[i][-1] = self.A * work
 
-        if(self.FirstBuild):
-            self.base_Av = self.coarse_Avecs.copy()
-"""
     def assembleCoarseMatrix(self):
 
         # Define, fill and factorize coarse problem matrix
         AH = PETSc.Mat().create(comm=PETSc.COMM_SELF) # Create Coarse Matrix System Locally on each processor
         AH.setType(PETSc.Mat.Type.SEQDENSE)
 
-        AH.setSizes([self.totalSize,self.totalSize])
+        AH.setSizes([self.totalSize,self.totalSize]) # Build full matrix
 
         AH.setOption(PETSc.Mat.Option.SYMMETRIC, True)
         AH.setPreallocationDense(None)
@@ -203,6 +193,46 @@ class coarseSpace():
         work, _ = self.A.getVecs()
         workl, _ = self.A_local.getVecs()
 
+        # Build in block matrices - build new matrices
+
+        Aij = [[None] * (i+1) for i in range(self.comm.Get_size())]
+
+        # Loop over only lower triangle blocks
+
+        for i in range(self.comm.Get_size()):
+
+            for j in range(i+1):
+
+                Aij[i][j] = np.zeros((len(self.coarse_vecs[i]), len(self.coarse_vecs[j])))
+
+                for il, ivec in enumerate(self.coarse_vecs[i]):
+
+                    if ivec:
+                        workl = ivec.copy()
+                    else:
+                        workl.set(0.0)
+
+                    work.set(0.0)
+                    self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
+
+                    for jl in range(il + 1):
+
+                        tmp = self.coarse_Avecs[j][jl].dot(work) # AH[i,j] = v_j^T A v_i
+
+                        Aij[i][j][il][jl] = tmp
+                        Aij[i][j][jl][il] = tmp
+
+        print(Aij)
+
+
+
+
+
+
+
+
+
+"""
         # If count == 0 this will build all of the matrix first
 
         # Compute plots of lower triangle matrix

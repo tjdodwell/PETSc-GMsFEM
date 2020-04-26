@@ -150,11 +150,7 @@ class DarcyEx1:
 
         self.cS.getCoarseVecs() # Builds Coarse Vectos on Each subdomain
 
-        print(self.cS.coarseIS)
-
         self.cS.compute_Av()
-
-        print(self.cS.totalSize)
 
         self.cS.assembleCoarseMatrix()
 
@@ -172,10 +168,9 @@ myModel = DarcyEx1(n, L, overlap, comm)
 
 myModel.cS.getSharedProcessors()
 
-"""
+
 x = myModel.solvePDE(True)
 
 myModel.addtoBasis(x) # Add solution to Coarse basis.
 
 myModel.buildCoarseSpace()
-"""
