@@ -80,12 +80,19 @@ class coarseSpace():
             self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
             self.scatter_l2g(work, workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
-            isNeighbour = 0
-            if(np.sum(workl[:]) > 0 and self.comm.Get_rank() != i):
-                isNeighbour = 1
-            isNeighbour = self.comm.gather(isNeighbour, root=i)
-            if(self.comm.Get_rank() == i):
-                self.isNeighbour = np.nonzero(isNeighbour)
+            isNeighbour = np.zeros(1, dtype = np.int32)
+
+            Neighbours = np.zeros(self.comm.Get_size(), dtype = np.int32)
+
+            if(np.sum(workl[:]) > 0):
+                isNeighbour[0] = 1
+
+            self.comm.Allgather([isNeighbour, mpi.INT], [Neighbours, mpi.INT])
+
+            self.isNeighbour = np.nonzero(Neighbours)
+
+            #print( "i is = " + str(i) + ", this is processor" + str(self.comm.Get_rank()) + str(self.isNeighbour))
+
 
 
     def addBasisElement(self, v):

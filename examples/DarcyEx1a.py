@@ -84,7 +84,6 @@ class DarcyEx1:
         return val, type
 
 
-
     def solvePDE(self, plotSolution = False):
 
         # Solve A * x = b
@@ -165,7 +164,7 @@ n = [40, 40, 40]
 
 dim = 3
 
-overlap = 4
+overlap = 1
 
 plotSolution = True
 
