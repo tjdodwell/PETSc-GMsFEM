@@ -84,11 +84,13 @@ class DarcyEx1:
         return val, type
 
 
-    def solvePDE(self, plotSolution = False, isCoarse = False):
+    def solvePDE(self, plotSolution = False, isCoarse = False, filename = "Solution"):
 
         # Solve A * x = b
 
         # Assemble Global Stifness Matrix
+
+        self.A = self.da.createMatrix()
 
         b = self.da.createGlobalVec()
         b_local = self.da.createLocalVec()
@@ -105,6 +107,7 @@ class DarcyEx1:
 
 
         if(isCoarse == False): # This is the fine solve
+
             # Implement Boundary Conditions
             rows = []
             for i in range(nnodes):
@@ -123,7 +126,7 @@ class DarcyEx1:
         x = self.da.createGlobalVec()
         x.set(0.0)
 
-        if(isCoarse):
+        if(isCoarse == False):
 
             # Setup Krylov solver - currently using AMG
             ksp = PETSc.KSP().create()
@@ -146,7 +149,7 @@ class DarcyEx1:
 
 
         if(plotSolution): # Plot solution to vtk file
-            viewer = PETSc.Viewer().createVTK('Solution.vts', 'w', comm = comm)
+            viewer = PETSc.Viewer().createVTK(filename + ".vts", 'w', comm = comm)
             x.view(viewer)
             viewer.destroy()
 
@@ -186,6 +189,6 @@ x = myModel.solvePDE(True, False)
 
 myModel.addtoBasis(x) # Add solution to Coarse basis.
 
-x = myModel.solvePDE(True, True)
+x = myModel.solvePDE(True, True, filename = "coarseSolution")
 
 #myModel.buildCoarseSpace()

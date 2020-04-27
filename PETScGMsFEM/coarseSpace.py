@@ -168,7 +168,7 @@ class coarseSpace():
                 self.scatter_l2g(self.coarse_Avecs[i][-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
                 if vec:
-                    vec.scale(1./np.sqrt(vec.dot(workl)))
+                    #vec.scale(1./np.sqrt(vec.dot(workl)))
                     workl = vec.copy()
                 else:
                     workl.set(0.)
@@ -261,6 +261,8 @@ class coarseSpace():
         mpi.COMM_WORLD.Allreduce([bH_tmp, mpi.DOUBLE], [bH, mpi.DOUBLE], mpi.SUM)
 
         self.ksp_AH.solve(bH, xH) # solve coarse problem
+
+        print(xH)
 
         workl.set(0.)
         for i in range(self.comm.Get_size()): # For each subdomain
