@@ -186,4 +186,6 @@ x = myModel.solvePDE(True, False)
 
 myModel.addtoBasis(x) # Add solution to Coarse basis.
 
+x = myModel.solvePDE(True, True)
+
 #myModel.buildCoarseSpace()
