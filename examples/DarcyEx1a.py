@@ -168,7 +168,6 @@ myModel = DarcyEx1(n, L, overlap, comm)
 
 myModel.cS.getSharedProcessors()
 
-
 x = myModel.solvePDE(True)
 
 myModel.addtoBasis(x) # Add solution to Coarse basis.

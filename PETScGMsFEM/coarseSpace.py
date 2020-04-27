@@ -25,7 +25,7 @@ class coarseSpace():
 
         self.numBuilds = 0 # Records how many times coarse system is built
 
-        self.coarseIS = [[]]
+        self.coarseIS = [ [] for i in range(self.comm.Get_size()) ]
 
         self.totalSize = 0
 
@@ -118,8 +118,7 @@ class coarseSpace():
                 # Local Sizes
                 for j in range(self.localSize[i]):
                     self.totalSize += 1
-                    if(i == self.comm.Get_rank()):
-                        self.coarseIS[self.numBuilds].append(self.count)
+                    self.coarseIS[i].append(self.count)
                     self.count += 1
                     self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
 
@@ -139,8 +138,7 @@ class coarseSpace():
                     self.needRebuild.append(i) # Make Processor that A*v_i needs updating
                     for j in range(self.localSize[i], size_local_basis):
                         self.totalSize += 1
-                        if(i == self.comm.Get_rank()):
-                            self.coarseIS[self.numBuilds].append(self.count)
+                        self.coarseIS[i].append(self.count)
                         self.count += 1
                         self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
                     self.localSize[i] = size_localBasis
@@ -199,6 +197,9 @@ class coarseSpace():
 
         # Loop over only lower triangle blocks
 
+        if(self.comm.Get_rank() == 0):
+            print(AH)
+
         for i in range(self.comm.Get_size()):
 
             for j in range(i+1):
@@ -216,70 +217,63 @@ class coarseSpace():
                     self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
 
                     for jl in range(il + 1):
-
                         tmp = self.coarse_Avecs[j][jl].dot(work) # AH[i,j] = v_j^T A v_i
-
                         Aij[i][j][il][jl] = tmp
                         Aij[i][j][jl][il] = tmp
+                        AH[self.coarseIS[i][il], self.coarseIS[j][jl]] = tmp
+                        AH[self.coarseIS[j][jl], self.coarseIS[i][il]] = tmp
 
-        print(Aij)
+                AH.assemble() # Assemble Coarse Matrix
 
+        self.ksp_AH = PETSc.KSP().create(comm=PETSc.COMM_SELF)
+        self.ksp_AH.setOperators(AH)
+        self.ksp_AH.setType('preonly')
+        pc = self.ksp_AH.getPC()
+        pc.setType('cholesky')
 
+    def coarseSolve(self, b):
 
+        """
+        - coarseSolve - takes the fine scale right hand side 'b' and projects it into the coarse space to coarse right hand side bH. We then solve the coarse problem AH * xh = bH using a direct solver. The solution is then projected back into the fine space and returned.
 
+        """
 
+        # This is the coarse right hand side
+        bH = PETSc.Vec().create(comm=PETSc.COMM_SELF)
+        bH.setType(PETSc.Vec.Type.SEQ)
+        bH.setSizes(len(self.totalSize))
 
+        xH = bH.duplicate() # Build solution vector for coarse space
 
+        bH_tmp = bH.duplicate()
 
+        work, _ = self.A.getVecs()
+        workl, _ = self.A_local.getVecs()
 
-"""
-        # If count == 0 this will build all of the matrix first
+        self.scatter_l2g(b, workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
-        # Compute plots of lower triangle matrix
+        for i in range(self.comm.Get_size()): # For each subdomain
+            for (j,vec) in enumerate(self.coarse_vecs[i]): # For each basis in subdomain
+                if vec:
+                    bH_tmp[self.coarseIS[i][j]] = vec.dot(workl)
 
-        V_i^T A V_j # Store these values in numpy array
+        mpi.COMM_WORLD.Allreduce([bH_tmp, mpi.DOUBLE], [bH, mpi.DOUBLE], mpi.SUM)
 
-        Get nearest neighbour
+        self.ksp_AH.solve(bH, xH) # solve coarse problem
 
-        for j in range(self.comm.Get_size()): # for each subdomain
+        workl.set(0.)
+        for i in range(self.comm.Get_size()): # For each subdomain
+            for (j,vec) in enumerate(self.coarse_vecs[i]): # For each basis in subdomain
+                if vec:
+                    workl.axpy(xH[self.coarseIS[i][j]],vec)
 
+        out = rhs.duplicate()
+        out.set(0.)
 
+        self.scatter_l2g(workl, out, PETSc.InsertMode.ADD_VALUES)
 
-        idMode = 0
+        return out
 
-        for i in range(self.comm.Get_size()): # for each subdomain
-
-            for j, vec in enumerate(coarse_vecs[i]): # For each mode in this subdomain
-
-                if vec: # if this vec belongs to this processor
-                    workl = vec.copy()
-                else:
-                    workl.set(0.0) # else set to zero
-
-                work.set(0.0)
-                self.scatter_l2g(self.workl, work, PETSc.InsertMode.ADD_VALUES)
-
-                for k in range(self.comm.Get_size()): # for each subdomain
-
-                for  in range(idMode+1): # Going to loop over just the lower triangle
-                    tmp = coarse_Avecs[i][j].dot(work) # AH[i,j] = v_j^T A v_i
-                    AH[i, j] = tmp
-                    AH[j, i] = tmp
-
-            AH.assemble() # Assemble coarse Matrix
-
-            # Set up coarse space solver
-
-            ksp_AH = PETSc.KSP().create(comm=PETSc.COMM_SELF)
-            ksp_AH.setOperators(AH)
-            ksp_AH.setType('preonly')
-            pc = ksp_AH.getPC()
-            pc.setType('cholesky')
-
-            return AH, ksp_AH
-
-
-"""
 
 
 """
