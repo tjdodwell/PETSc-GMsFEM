@@ -84,7 +84,7 @@ class DarcyEx1:
         return val, type
 
 
-    def solvePDE(self, plotSolution = False):
+    def solvePDE(self, plotSolution = False, isCoarse = False):
 
         # Solve A * x = b
 
@@ -103,15 +103,17 @@ class DarcyEx1:
         self.A.assemble()
         self.comm.barrier()
 
-        # Implement Boundary Conditions
-        rows = []
-        for i in range(nnodes):
-            val, type = self.isBoundary(coords[:,i])
-            if(type == 1): # It's Dirichlet
-                rows.append(i)
-                b_local[i] = val
-        rows = np.asarray(rows,dtype=np.int32)
-        self.A.zeroRowsLocal(rows, diag = 1.0)
+
+        if(isCoarse == False): # This is the fine solve
+            # Implement Boundary Conditions
+            rows = []
+            for i in range(nnodes):
+                val, type = self.isBoundary(coords[:,i])
+                if(type == 1): # It's Dirichlet
+                    rows.append(i)
+                    b_local[i] = val
+            rows = np.asarray(rows,dtype=np.int32)
+            self.A.zeroRowsLocal(rows, diag = 1.0)
 
         self.scatter_l2g(b_local, b, PETSc.InsertMode.INSERT_VALUES)
 
@@ -121,17 +123,27 @@ class DarcyEx1:
         x = self.da.createGlobalVec()
         x.set(0.0)
 
-        # Setup Krylov solver - currently using AMG
-        ksp = PETSc.KSP().create()
-        pc = ksp.getPC()
-        ksp.setType('cg')
-        pc.setType('gamg')
+        if(isCoarse):
 
-        # Iteratively solve linear system of equations A*x=b
-        ksp.setOperators(self.A)
-        ksp.setInitialGuessNonzero(True)
-        ksp.setFromOptions()
-        ksp.solve(b, x)
+            # Setup Krylov solver - currently using AMG
+            ksp = PETSc.KSP().create()
+            pc = ksp.getPC()
+            ksp.setType('cg')
+            pc.setType('gamg')
+
+            # Iteratively solve linear system of equations A*x=b
+            ksp.setOperators(self.A)
+            ksp.setInitialGuessNonzero(True)
+            ksp.setFromOptions()
+            ksp.solve(b, x)
+
+        else:
+
+            self.buildCoarseSpace(self.A)
+
+            x = self.cS.coarseSolve(b)
+
+
 
         if(plotSolution): # Plot solution to vtk file
             viewer = PETSc.Viewer().createVTK('Solution.vts', 'w', comm = comm)
@@ -146,7 +158,9 @@ class DarcyEx1:
         self.scatter_l2g(x, x_loc, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
         self.cS.addBasisElement(x_loc) # Note that 0 since in this case 1 proc = 1 subdomain
 
-    def buildCoarseSpace(self):
+    def buildCoarseSpace(self, A):
+
+        self.cS.A = A
 
         self.cS.getCoarseVecs() # Builds Coarse Vectos on Each subdomain
 
@@ -168,8 +182,8 @@ myModel = DarcyEx1(n, L, overlap, comm)
 
 myModel.cS.getSharedProcessors()
 
-x = myModel.solvePDE(True)
+x = myModel.solvePDE(True, False)
 
 myModel.addtoBasis(x) # Add solution to Coarse basis.
 
-myModel.buildCoarseSpace()
+#myModel.buildCoarseSpace()

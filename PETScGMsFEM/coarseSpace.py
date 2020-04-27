@@ -231,6 +231,7 @@ class coarseSpace():
         pc = self.ksp_AH.getPC()
         pc.setType('cholesky')
 
+
     def coarseSolve(self, b):
 
         """
@@ -241,7 +242,7 @@ class coarseSpace():
         # This is the coarse right hand side
         bH = PETSc.Vec().create(comm=PETSc.COMM_SELF)
         bH.setType(PETSc.Vec.Type.SEQ)
-        bH.setSizes(len(self.totalSize))
+        bH.setSizes(self.totalSize)
 
         xH = bH.duplicate() # Build solution vector for coarse space
 
@@ -267,7 +268,7 @@ class coarseSpace():
                 if vec:
                     workl.axpy(xH[self.coarseIS[i][j]],vec)
 
-        out = rhs.duplicate()
+        out = b.duplicate()
         out.set(0.)
 
         self.scatter_l2g(workl, out, PETSc.InsertMode.ADD_VALUES)
