@@ -113,7 +113,7 @@ def main():
     if(comm.Get_rank() == 0):
         print("PASS")
 
-    # Test 2 -
+    # Test 2 - Check Dofs sent and recieved marry up.
 
     if(comm.Get_rank() == 0):
 
@@ -165,6 +165,26 @@ def main():
         else:
             print("FAIL")
 
+    # Test 3 - Check Partiton of Unity Operator
+
+    if(comm.Get_rank() == 0):
+
+        print("*** Testing Partition of Unity Operator", end = "  ")
+
+    g = myModel.da.createGlobalVec()
+    l = myModel.da.createLocalVec()
+    Xl = myModel.da.createLocalVec()
+
+    l.set(1.0)
+
+    myModel.VH.POU.X.mult(l,Xl)
+
+    myModel.scatter_l2g(Xl, g, PETSc.InsertMode.ADD_VALUES)
+
+    assert np.abs(g.norm()**2/g.getSize() - 1.0) < 1e-6, "Partition of Unity is not correct"
+
+    if(comm.Get_rank() == 0):
+        print("PASS")
 
     # Receive from other processor
 """
