@@ -1,0 +1,4 @@
+cd ..
+python setup.py install
+cd examples
+mpirun -np 3 python Test.py -ksp_monitor

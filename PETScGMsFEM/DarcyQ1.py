@@ -15,11 +15,11 @@ class DarcyQ1(HEX):
         # x - coordinates of element nodes np.array - dim by nodel
         # val -  permeability value at each node
         Ke = np.zeros((self.dofel,self.dofel))
-
-        k_ip = k#   np.mean(k)
         for ip in range(self.nip): # For each integration point
             J = np.matmul(x, self.dNdu[ip])
             dNdX = np.matmul(self.dNdu[ip],np.linalg.inv(J))
+
+            k_ip = np.dot(self.N[ip], k)
 
             Ke += k_ip * np.matmul(dNdX,np.transpose(dNdX)) * np.linalg.det(J) * self.IP_W[ip]
         return Ke
@@ -32,8 +32,17 @@ class DarcyQ1(HEX):
         Me = np.zeros((self.dofel,self.dofel))
         for ip in range(self.nip): # For each integration point
             J = np.matmul(x, self.dNdu[ip])
-            Me += val * np.matmul(self.N[ip],np.transpose(self.N[ip])) * np.linalg.det(J) * self.IP_W[ip]
-        return Ke
+            Me += val * np.outer(self.N[ip],self.N[ip]) * np.linalg.det(J) * self.IP_W[ip]
+        return Me
+
+    def getLocalMassDiag(self, x, val = 1.0):
+        # getMe - computes element mass matrix
+        # x - coordinates of element nodes np.array - dim by nodel
+        Me = np.zeros((self.dofel,self.dofel))
+        for ip in range(self.nip): # For each integration point
+            J = np.matmul(x, self.dNdu[ip])
+            Me += val * np.dot(np.eye(self.dofel),self.N[ip]) * np.linalg.det(J) * self.IP_W[ip]
+        return Me
 
     def getLoadVec(self, x, func = 1.0):
         # getRHS - computes load vector

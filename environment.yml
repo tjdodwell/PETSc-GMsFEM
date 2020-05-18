@@ -18,3 +18,7 @@ dependencies:
     - pip:
       - pythreejs==1.0.0
       - pytest
+      - gempy
+      - qgrid
+      - pyvista
+      - pyevtk

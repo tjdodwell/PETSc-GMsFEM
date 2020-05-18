@@ -3,14 +3,30 @@ import sys, petsc4py
 petsc4py.init(sys.argv)
 from mpi4py import MPI
 from petsc4py import PETSc
+from slepc4py import SLEPc
 import numpy as np
 
+import time
+
 from PETScGMsFEM import *
+
+"""
+
+     - Simplify Assembly of Coarse Matrix
+
+     - Implement Quadrature
+
+     - Optimize Assembly of Coarse Space
+
+"""
+
 
 comm = MPI.COMM_WORLD
 
 if(comm.Get_rank() == 0):
     print("Running Grid Test.py")
+
+
 
 class DarcyEx1:
 
@@ -29,6 +45,10 @@ class DarcyEx1:
         self.da = PETSc.DMDA().create(n, dof=1, stencil_width=overlap)
         self.da.setUniformCoordinates(xmax=L[0], ymax=L[1], zmax=L[2])
         self.da.setMatType(PETSc.Mat.Type.AIJ)
+
+
+        elem = self.da.getElements()
+        self.nel = elem.shape[0]
 
         self.numSub = comm.Get_size()
 
@@ -66,6 +86,11 @@ class DarcyEx1:
 
         self.cS.buildPOU(True)
 
+        # Setup local POD operator
+
+        self.POD = localPOD(self.da)
+
+
     def isBoundary(self, x):
         val = 0.0
         if(x[0] < 1e-6):
@@ -83,11 +108,17 @@ class DarcyEx1:
 
         return val, type
 
+    def setCoeff(self, random = False):
+        if(random):
+            self.k = np.exp(np.random.normal(0.0,0.2,self.nel))
+        else:
+            self.k = np.ones(self.nel)
+
+
 
     def solvePDE(self, plotSolution = False, isCoarse = False, filename = "Solution"):
 
         # Solve A * x = b
-
         # Assemble Global Stifness Matrix
 
         self.A = self.da.createMatrix()
@@ -99,15 +130,13 @@ class DarcyEx1:
         nnodes = int(self.da.getCoordinatesLocal()[ :].size/self.dim)
         coords = np.transpose(self.da.getCoordinatesLocal()[:].reshape((nnodes,self.dim)))
         for ie, e in enumerate(elem,0): # Loop over all local elements
-            Ke = self.fe.getLocalStiffness(coords[:,e], 1.0)
+            Ke = self.fe.getLocalStiffness(coords[:,e], self.k[ie])
             self.A.setValuesLocal(e, e, Ke, PETSc.InsertMode.ADD_VALUES)
             b_local[e] = self.fe.getLoadVec(coords[:,e])
         self.A.assemble()
         self.comm.barrier()
 
-
         if(isCoarse == False): # This is the fine solve
-
             # Implement Boundary Conditions
             rows = []
             for i in range(nnodes):
@@ -146,8 +175,6 @@ class DarcyEx1:
 
             x = self.cS.coarseSolve(b)
 
-
-
         if(plotSolution): # Plot solution to vtk file
             viewer = PETSc.Viewer().createVTK(filename + ".vts", 'w', comm = comm)
             x.view(viewer)
@@ -155,25 +182,50 @@ class DarcyEx1:
 
         return x
 
-    def addtoBasis(self, x):
+    def addtoBasis(self, x, setBC = False):
         # x is global soltuion vector from a previous solve. Need to obtain solution on subdomain
         x_loc = self.da.createLocalVec()
+
         self.scatter_l2g(x, x_loc, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
-        self.cS.addBasisElement(x_loc) # Note that 0 since in this case 1 proc = 1 subdomain
+
+        if(setBC):
+            self.cS.addBasisElement(x_loc, setBC)
+        else:
+            self.POD.addVector(x_loc)
+
+    def updateBasis(self):
+
+        newBasis = self.POD.updateBasis()
+
+        self.cS.renewBasisElements(newBasis)
+
 
     def buildCoarseSpace(self, A):
 
         self.cS.A = A
 
-        self.cS.getCoarseVecs() # Builds Coarse Vectos on Each subdomain
+        self.cS.getCoarseVecs() # Builds Coarse Vectors on Each subdomain
 
         self.cS.compute_Av()
 
         self.cS.assembleCoarseMatrix()
 
+
+"""
+
+    Add more than one basis function, give option to mark first.
+
+    Mark later ones A-orthogonal and zero Dirchlet.
+
+    Impose mean solution as initial guess
+
+    Need to sort out boundary conditions for coarse problem.
+
+"""
+
 L = [1.0, 1.0, 1.0]
 
-n = [40, 40, 40]
+n = [20, 20, 20]
 
 dim = 3
 
@@ -185,10 +237,36 @@ myModel = DarcyEx1(n, L, overlap, comm)
 
 myModel.cS.getSharedProcessors()
 
-x = myModel.solvePDE(True, False)
 
-myModel.addtoBasis(x) # Add solution to Coarse basis.
+myModel.setCoeff(False)
+"""
+x = myModel.solvePDE(True, False, "ConstantField_Solution")
 
-x = myModel.solvePDE(True, True, filename = "coarseSolution")
+myModel.addtoBasis(x, True) # Add solution to Coarse basis + Set as Boundary Condition
 
-#myModel.buildCoarseSpace()
+start = time.time()
+
+for i in range(50):
+
+    myModel.setCoeff(True)
+
+    x = myModel.solvePDE(x, False, "Random_"+str(i))
+
+    myModel.addtoBasis(x, False) # Add solution to Coarse basis + GramSchmidt = True
+
+end = time.time()
+print("Avg. Full solves = " + str((end - start)/20))
+
+myModel.updateBasis()
+
+start = time.time()
+
+for i in range(10):
+
+    myModel.setCoeff(True)
+
+    x = myModel.solvePDE(True, True, filename = "coarseSolution")
+
+end = time.time()
+print("Avg Coarse Solve = " + str((end - start)/20))
+"""

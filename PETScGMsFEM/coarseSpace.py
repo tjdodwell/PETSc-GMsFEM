@@ -21,6 +21,10 @@ class coarseSpace():
 
         self.localBasis = []
 
+        self.isBC = []
+
+        self.bndDof = []
+
         self.count = 0
 
         self.numBuilds = 0 # Records how many times coarse system is built
@@ -91,57 +95,57 @@ class coarseSpace():
 
             self.isNeighbour = np.nonzero(Neighbours)
 
-    def addBasisElement(self, v):
+    def addBasisElement(self, v, setBC = False, GramSchmidt = False):
 
-        self.localBasis.append(self.X * v) # Amend to basis to list - multiply by POU
+        tmp = self.X * v # multiply by POU
+
+        if(setBC == False):
+
+            tmp[:] -= self.localBasis[0] # Subtract the boundary vector since this will ensure boundary conditions are correct.
+
+        self.localBasis.append(tmp) # Amend to basis to list
+
+        self.isBC.append(setBC)
+
+    def renewBasisElements(self, newBasis):
+
+        meanSolution = self.localBasis[0]
+
+        self.localBasis.clear()
+        self.isBC.clear()
+        self.isBC.append(True)
+        self.localBasis.append(meanSolution)
+
+        for i, vec in enumerate(newBasis):
+            self.localBasis.append(vec)
+            self.isBC.append(False)
+
+        print("This is length of local Basis = " + str(len(self.localBasis)))
+        self.coarseVecsBuilt = False
+
+
 
     def getCoarseVecs(self):
 
-        self.needRebuild = []
+        # Function obtains size of coarse system
 
-        if(self.coarseVecsBuilt == False):
+        self.count = 0 # restart the counter
 
-            assert self.count == 0, "Full build of vector only required on first pass, something's not right."
+        localSize = len(self.localBasis)
 
-            self.coarse_vecs = [ [] for i in range(self.comm.Get_size()) ] # construct list of lists to contain all vectors
-            self.localSize = l = [None] * self.comm.Get_size()
+        self.localSize = np.zeros(self.comm.Get_size(), dtype = np.int32)
 
-            for i in range(self.comm.Get_size()): # For each subdomain
+        self.comm.Allgather([localSize, mpi.INT], [self.localSize, mpi.INT])
 
-                self.needRebuild.append(i) # Tells us we need to rebuild A * v_i for this subdomain.
+        self.totalSize = np.sum(self.localSize)
 
-                self.localSize[i] = len(self.localBasis) if i == mpi.COMM_WORLD.rank else None
+        start = np.sum(self.localSize[0:self.comm.Get_rank()])
 
-                # Communicate size of local basis for subdomain i which lives on process sub2proce[i,0]
-                self.localSize[i] = mpi.COMM_WORLD.bcast(self.localSize[i], root=i)
+        for j in range(self.localSize[self.comm.Get_rank()]):
+            self.coarseIS[i].append(start + j)
+            if(self.isBC[j]):
+                self.bndDof.append(start + j)
 
-                # Local Sizes
-                for j in range(self.localSize[i]):
-                    self.totalSize += 1
-                    self.coarseIS[i].append(self.count)
-                    self.count += 1
-                    self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
-
-            self.coarseVecsBuilt = True
-            self.FirstBuild = True
-            self.numBuilds += 1
-
-
-        else: # Coarse Vecs have been built previously, check to see if they have been made bigger / changed
-
-            for i in range(self.comm.Get_size()): # For each subdomain
-                size_localBasis = len(self.localBasis) if i == mpi.COMM_WORLD.rank else None
-                # Communicate size of local basis for subdomain i which lives on process sub2proce[i,0]
-                size_localBasis = mpi.COMM_WORLD.bcast(size_localBasis, root=i)
-                numNewModes = size_local_basis - self.localSize[i]
-                if(numNewModes > 0): # New Modes have been added on processor i
-                    self.needRebuild.append(i) # Make Processor that A*v_i needs updating
-                    for j in range(self.localSize[i], size_local_basis):
-                        self.totalSize += 1
-                        self.coarseIS[i].append(self.count)
-                        self.count += 1
-                        self.coarse_vecs[i].append(self.localBasis[j] if i == mpi.COMM_WORLD.rank else None)
-                    self.localSize[i] = size_localBasis
 
     def compute_Av(self):
 
@@ -152,9 +156,13 @@ class coarseSpace():
 
         self.coarse_Avecs = [ [] for i in range(self.comm.Get_size()) ]
 
+        for i in range(self.localSize[self.comm.Get_rank()]):
+
+            self.coarse_Avec[self.comm.Get_rank()].append(self.A_local * self.localBasis[i])
+
         for i in range(self.comm.Get_size()): # For each subdomain
 
-            for vec in self.coarse_vecs[i]:
+            for j, vec in enumerate(self.coarse_vecs[i]):
 
                 if vec: # if this vec belongs to this processor
                     workl = vec.copy()
@@ -167,29 +175,29 @@ class coarseSpace():
 
                 self.scatter_l2g(self.coarse_Avecs[i][-1], workl, PETSc.InsertMode.INSERT_VALUES, PETSc.ScatterMode.SCATTER_REVERSE)
 
-                if vec:
-                    #vec.scale(1./np.sqrt(vec.dot(workl)))
+                if vec and j > 0:
+                    vec.scale(1./np.sqrt(vec.dot(workl)))
                     workl = vec.copy()
                 else:
                     workl.set(0.)
 
                 work.set(0.) # Initialise to zero
                 self.scatter_l2g(workl, work, PETSc.InsertMode.ADD_VALUES)
-                self.coarse_Avecs[i][-1] = self.A * work
+                self.coarse_Avecs[i][-1] = A * work
 
-    def assembleCoarseMatrix(self):
+    def assembleCoarseMatrix(self, A, A_local):
 
         # Define, fill and factorize coarse problem matrix
         AH = PETSc.Mat().create(comm=PETSc.COMM_SELF) # Create Coarse Matrix System Locally on each processor
         AH.setType(PETSc.Mat.Type.SEQDENSE)
 
-        AH.setSizes([self.totalSize,self.totalSize]) # Build full matrix
+        AH.setSizes([self.Phi.totalSize,self.Phi.totalSize]) # Build full matrix
 
         AH.setOption(PETSc.Mat.Option.SYMMETRIC, True)
         AH.setPreallocationDense(None)
 
-        work, _ = self.A.getVecs()
-        workl, _ = self.A_local.getVecs()
+        work, _ = A.getVecs()
+        workl, _ = A_local.getVecs()
 
         # Build in block matrices - build new matrices
 
@@ -197,8 +205,7 @@ class coarseSpace():
 
         # Loop over only lower triangle blocks
 
-        if(self.comm.Get_rank() == 0):
-            print(AH)
+
 
         for i in range(self.comm.Get_size()):
 
@@ -223,7 +230,15 @@ class coarseSpace():
                         AH[self.coarseIS[i][il], self.coarseIS[j][jl]] = tmp
                         AH[self.coarseIS[j][jl], self.coarseIS[i][il]] = tmp
 
-                AH.assemble() # Assemble Coarse Matrix
+        AH.assemble() # Assemble Coarse Matrix
+
+        # Implement Coarse Boundary conditions
+        rows = np.asarray(self.bndDof,dtype=np.int32)
+
+        AH.zeroRows(rows,diag=1.0)
+
+        self.AH = AH.copy()
+
 
         self.ksp_AH = PETSc.KSP().create(comm=PETSc.COMM_SELF)
         self.ksp_AH.setOperators(AH)
@@ -260,9 +275,14 @@ class coarseSpace():
 
         mpi.COMM_WORLD.Allreduce([bH_tmp, mpi.DOUBLE], [bH, mpi.DOUBLE], mpi.SUM)
 
-        self.ksp_AH.solve(bH, xH) # solve coarse problem
+        print(self.bndDof)
 
-        print(xH)
+        for i in self.bndDof:
+            bH[i] = 1.0
+
+        self.bH = bH.copy()
+
+        self.ksp_AH.solve(bH, xH) # solve coarse problem
 
         workl.set(0.)
         for i in range(self.comm.Get_size()): # For each subdomain
@@ -276,6 +296,11 @@ class coarseSpace():
         self.scatter_l2g(workl, out, PETSc.InsertMode.ADD_VALUES)
 
         return out
+
+    def project(self,u,v):
+        tmp = u.copy()
+        tmp.scale(v.dot(u) / u.dot(u))
+        return tmp
 
 
 
