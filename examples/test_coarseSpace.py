@@ -121,17 +121,17 @@ def main():
 
         # Find coordinates of overlap
 
-        overlap_x = myModel.coordsLocal[0,myModel.VH.dof_proc[1]]
+        overlap_x = myModel.coordsLocal[0,myModel.VH.dof_overlap_this[1]]
 
-        data_send = myModel.VH.dof_other[1][0][0]
+        data_send = myModel.VH.dof_overlap_other[1][0][0]
 
-        comm.Isend(data_send, dest = 1)#, tag = self.generateTag(vec[this], vec[other], j))
+        comm.Isend(data_send, dest = 1)
 
         comm.Isend(overlap_x, dest = 1)
 
     elif(comm.Get_rank() == 1):
 
-        localNumber = myModel.VH.dof_proc[0][0][0]
+        localNumber = myModel.VH.dof_overlap_this[0][0][0]
 
         data_recv = np.zeros(len(localNumber), dtype=np.int32)
 

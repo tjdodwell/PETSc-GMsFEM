@@ -49,20 +49,30 @@ class newCoarseSpace():
 
     def getNearestNeighbours(self):
 
-        self.neighbour_list = []
+        """
+            getNearestNeighbours - for each subdomain, finds the nearest neighbour processors, for which the subdomain will overlap. For each of these pairs finds corresponding degrees of freedom on each subdomain.
 
-        self.overlap_dofs_send = [ ]
-        self.overlap_dofs_recv = [ ]
+                self.neighbour_list - list of lists - for each subdomain contrains list of subdomains which are neighbours.
 
-        # dof_proc - list of dofs belong to proc which will shared with other processors
+                self.dof_overlap_this - lists of list - for each subdomain which is a neighbour of 'this' processor. Will contain a lists of local dof numbers which live in the overlap
 
-        self.dof_proc = [ [] for i in range(self.comm.Get_size())]
+                self.dof_overlap_other - lists of list - for each subdomain which is a neighbour of 'this' processor. Will contain a lists of dof numbers on the other processor which live in the overlap.
 
-        # dof_other - list of dofs belong to neighbour proc which will shared with other processors
+        """
 
-        self.dof_other = [ [] for i in range(self.comm.Get_size())]
+        # Initialise Lists to be constructed
 
-        for i in range(self.comm.Get_size()): # For each processor
+        self.neighbour_list = [ [] for i in range(self.comm.Get_size()) ]
+
+        self.dof_overlap_this = [ [] for i in range(self.comm.Get_size())]
+
+        self.dof_overlap_other = [ [] for i in range(self.comm.Get_size())]
+
+        # For Each Subdomain / Processor
+
+        for i in range(self.comm.Get_size()):
+
+            # Find Neigbours - Note all processors now global connectivity.
 
             work = self.da.createGlobalVec()
             workl = self.da.createLocalVec()
@@ -88,14 +98,16 @@ class newCoarseSpace():
 
             self.comm.Allgather([isNeighbour, mpi.INT], [Neighbours, mpi.INT])
 
-            self.neighbour_list.append(np.nonzero(Neighbours)[0])
+            self.neighbour_list[i] = np.nonzero(Neighbours)[0]
 
-            # All Processors know about global connectivity
+            # For neighbours of processor i
 
-            for k in self.neighbour_list[-1]: # For the neighbours of processor i
+            for k in self.neighbour_list[i]:
 
-                if(self.comm.Get_rank() == k): # If you are the neighbour
+                if(self.comm.Get_rank() == k):
+                    # If you are the neighbour
                     workl[:] = np.arange(workl.size) + 1
+                    # NB. Note use of '+1' so can use call np.nonzeros() later otherwise approach removes '0' dof from lists.
                 else:
                     workl.set(0.0)
 
@@ -108,9 +120,6 @@ class newCoarseSpace():
 
                 if(self.comm.Get_rank() == i): # If this processor
                     id = np.asarray(np.nonzero(workl[:]), dtype = np.int32)
-
-                    #Issue with is non-zero removes '0' dof from the list.
                     id_neighbour = np.asarray(workl[id] - 1, dtype = np.int32)
-                    self.dof_proc[k].append(id) # Record local nodes which will communicate with neighbour k
-                
-                    self.dof_other[k].append(id_neighbour)
+                    self.dof_overlap_this[k].append(id) # Record local nodes which will communicate with neighbour k
+                    self.dof_overlap_other[k].append(id_neighbour)
