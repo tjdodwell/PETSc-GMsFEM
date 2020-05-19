@@ -47,6 +47,10 @@ class newCoarseSpace():
 
         self.getNearestNeighbours()
 
+        # Boundary conditions
+
+        self.bndDof = []
+
     def getNearestNeighbours(self):
 
         """
@@ -123,3 +127,26 @@ class newCoarseSpace():
                     id_neighbour = np.asarray(workl[id] - 1, dtype = np.int32)
                     self.dof_overlap_this[k].append(id) # Record local nodes which will communicate with neighbour k
                     self.dof_overlap_other[k].append(id_neighbour)
+
+    def getGlobalIDs(self):
+
+        """
+            getGlobalIDs - communicates local basis sizes across all processors. Assigns global IDs to local basis.
+
+        """
+
+        lsize = np.zeros(1, dtype = np.int32)
+        lsize[0] = self.Phi.size
+
+        self.localSizes = np.zeros(self.comm.Get_size(), dtype = np.int32)
+
+        self.comm.Allgather([lsize, mpi.INT], [self.localSizes, mpi.INT])
+
+        self.size = np.sum(self.localSizes)
+
+        start = np.sum(self.localSizes[0:self.comm.Get_rank()])
+
+        for j in range(self.localSizes[self.comm.Get_rank()]):
+            self.Phi.setGlobalID(j, start + j)
+            if(self.Phi.isBnd[j]):
+                self.bndDof.append(start + j)

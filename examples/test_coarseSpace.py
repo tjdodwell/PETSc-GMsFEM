@@ -150,8 +150,6 @@ def main():
 
     if(comm.Get_rank() == 1):
 
-        print(np.sum(np.abs(myModel.coordsLocal[0,data_recv] - overlap_x)))
-
         if(np.sum(np.abs(myModel.coordsLocal[0,data_recv] - overlap_x)) < 1e-4):
 
             data[0] = 1
@@ -182,6 +180,29 @@ def main():
     myModel.scatter_l2g(Xl, g, PETSc.InsertMode.ADD_VALUES)
 
     assert np.abs(g.norm()**2/g.getSize() - 1.0) < 1e-6, "Partition of Unity is not correct"
+
+    if(comm.Get_rank() == 0):
+        print("PASS")
+
+
+    if(comm.Get_rank() == 0):
+
+        print("*** Testing Adding element to local basis", end = "  ")
+
+    assert myModel.VH.Phi.size == 0, "TEST FAIL: Initialise size of local basis is not zero"
+
+    myModel.VH.Phi.add(l)
+
+    assert myModel.VH.Phi.size == 1, "TEST FAIL: Local basis should be zero since .add() called once"
+
+    assert myModel.VH.Phi.isBnd[0] == False, "TEST FAIL : isBnd[0] should be false"
+
+    myModel.VH.getGlobalIDs()
+
+    for i in range(len(myModel.VH.localSizes)):
+        assert myModel.VH.localSizes[i] == 1, "TEST FAIL : Local basis sizes are not all 1, communication issue."
+
+    assert myModel.VH.Phi.globalID[0] == comm.Get_rank(), "TEST FAIL : Global ids are not numbered correctly" 
 
     if(comm.Get_rank() == 0):
         print("PASS")
